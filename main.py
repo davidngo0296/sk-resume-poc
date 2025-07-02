@@ -15,6 +15,7 @@ from rich.table import Table
 from rich.text import Text
 
 from src.orchestration.script_group_chat_manager import ScriptGroupChatManager
+from src.orchestration.banner_group_chat_manager import BannerGroupChatManager
 from src.serialization.conversation_serializer import ConversationSerializer
 
 
@@ -26,65 +27,135 @@ class MultiAgentCLI:
     
     def __init__(self):
         self.console = Console()
-        
-        # Create individual agent instances
-        from src.agents.manager_agent import ManagerAgent
-        from src.agents.script_writer_agent import ScriptWriterAgent
-        from src.agents.audio_selector_agent import AudioSelectorAgent
-        
-        manager_agent = ManagerAgent()
-        script_writer = ScriptWriterAgent()
-        audio_selector = AudioSelectorAgent()
-        specialist_agents = [script_writer, audio_selector]
-        
-        # Create workflow manager - this handles all workflow-specific setup
-        self.workflow_manager = ScriptGroupChatManager(manager_agent, specialist_agents)
-        
         self.serializer = ConversationSerializer()
         self.current_conversation_id: Optional[str] = None
+        self.workflow_manager = None  # Will be set after workflow selection
+    
+    def select_workflow_type(self) -> str:
+        """Allow user to select which workflow type to use."""
+        self.console.print("\n[bold blue]🚀 Multi-Agent Team POC[/bold blue]")
+        self.console.print("[italic]Powered by Semantic Kernel Group Chat Orchestration[/italic]\n")
+        
+        table = Table(title="Available Workflows", show_header=True)
+        table.add_column("Option", style="cyan", no_wrap=True)
+        table.add_column("Workflow", style="green")
+        table.add_column("Description", style="white")
+        
+        table.add_row("1", "Video Script Creation", "Create professional video scripts with audio recommendations")
+        table.add_row("2", "Social Banner Design", "Design engaging social media banners with professional evaluation")
+        table.add_row("q", "Quit", "Exit the application")
+        
+        self.console.print(table)
+        
+        while True:
+            choice = Prompt.ask("\nSelect a workflow type")
+            
+            if choice == "1":
+                return "script"
+            elif choice == "2":
+                return "banner"
+            elif choice.lower() in ["q", "quit"]:
+                self.console.print("[bold blue]👋 Goodbye![/bold blue]")
+                sys.exit(0)
+            else:
+                self.console.print("[red]Invalid option. Please select 1, 2, or q.[/red]")
+    
+    def initialize_workflow_manager(self, workflow_type: str):
+        """Initialize the appropriate workflow manager based on type."""
+        from src.agents.manager_agent import ManagerAgent
+        
+        manager_agent = ManagerAgent()
+        
+        if workflow_type == "script":
+            from src.agents.script_writer_agent import ScriptWriterAgent
+            from src.agents.audio_selector_agent import AudioSelectorAgent
+            
+            script_writer = ScriptWriterAgent()
+            audio_selector = AudioSelectorAgent()
+            specialist_agents = [script_writer, audio_selector]
+            
+            self.workflow_manager = ScriptGroupChatManager(manager_agent, specialist_agents)
+            
+        elif workflow_type == "banner":
+            from src.agents.graphic_designer_agent import GraphicDesignerAgent
+            from src.agents.graphic_evaluator_agent import GraphicEvaluatorAgent
+            
+            graphic_designer = GraphicDesignerAgent()
+            graphic_evaluator = GraphicEvaluatorAgent()
+            specialist_agents = [graphic_designer, graphic_evaluator]
+            
+            self.workflow_manager = BannerGroupChatManager(manager_agent, specialist_agents)
+            
+        else:
+            raise ValueError(f"Unsupported workflow type: {workflow_type}")
     
     def display_banner(self):
         """Display the application banner using workflow-specific info."""
-        display_info = self.workflow_manager.get_workflow_display_info()
-        
-        banner = Text(display_info["title"], style="bold blue")
-        subtitle = Text(display_info["subtitle"], style="italic")
-        
-        self.console.print(Panel.fit(
-            f"{banner}\n{subtitle}",
-            title=display_info["welcome_title"],
-            border_style="blue"
-        ))
+        if self.workflow_manager:
+            display_info = self.workflow_manager.get_workflow_display_info()
+            
+            banner = Text(display_info["title"], style="bold blue")
+            subtitle = Text(display_info["subtitle"], style="italic")
+            
+            self.console.print(Panel.fit(
+                f"{banner}\n{subtitle}",
+                title=display_info["welcome_title"],
+                border_style="blue"
+            ))
+        else:
+            # Generic banner when no workflow is selected
+            self.console.print(Panel.fit(
+                "🚀 Multi-Agent Team POC\nPowered by Semantic Kernel",
+                title="Welcome",
+                border_style="blue"
+            ))
     
     def display_menu(self):
         """Display the main menu options using workflow-specific info."""
-        display_info = self.workflow_manager.get_workflow_display_info()
-        
-        table = Table(title="Available Actions", show_header=False)
-        table.add_column("Option", style="cyan", no_wrap=True)
-        table.add_column("Description", style="white")
-        
-        table.add_row("1", display_info["new_session_action"])
-        table.add_row("2", "Resume paused conversation")
-        table.add_row("3", "List saved conversations")
-        table.add_row("4", "View conversation summary")
-        table.add_row("5", "Delete saved conversation")
-        table.add_row("q", "Quit")
-        
-        self.console.print(table)
+        if self.workflow_manager:
+            display_info = self.workflow_manager.get_workflow_display_info()
+            
+            table = Table(title="Available Actions", show_header=False)
+            table.add_column("Option", style="cyan", no_wrap=True)
+            table.add_column("Description", style="white")
+            
+            table.add_row("1", display_info["new_session_action"])
+            table.add_row("2", "Resume paused conversation")
+            table.add_row("3", "List saved conversations")
+            table.add_row("4", "View conversation summary")
+            table.add_row("5", "Delete saved conversation")
+            table.add_row("6", "Switch workflow type")
+            table.add_row("q", "Quit")
+            
+            self.console.print(table)
+        else:
+            self.console.print("[red]No workflow selected. Please restart the application.[/red]")
     
     async def start_new_conversation(self):
         """Start a new conversation using workflow-specific prompts."""
+        if not self.workflow_manager:
+            self.console.print("[red]No workflow selected. Please restart the application.[/red]")
+            return
+            
         display_info = self.workflow_manager.get_workflow_display_info()
         
         self.console.print(f"\n[bold green]{display_info['session_starting_message']}[/bold green]")
         
-        # Get initial user prompt using workflow-specific text
-        user_prompt = Prompt.ask(f"\n{display_info['new_session_prompt']}")
+        # Check if workflow supports auto-start
+        workflow_config = self.workflow_manager.workflow_config if hasattr(self.workflow_manager, 'workflow_config') else {}
+        auto_start = workflow_config.get("auto_start", False)
         
-        if not user_prompt.strip():
-            self.console.print("[red]No prompt provided. Returning to menu.[/red]")
-            return
+        if auto_start:
+            # Auto-start workflow without user input
+            user_prompt = "auto-start"  # Trigger word for automated workflow
+            self.console.print("\n[dim]Starting automated workflow...[/dim]")
+        else:
+            # Get initial user prompt using workflow-specific text
+            user_prompt = Prompt.ask(f"\n{display_info['new_session_prompt']}")
+            
+            if not user_prompt.strip():
+                self.console.print("[red]No prompt provided. Returning to menu.[/red]")
+                return
         
         # Reset workflow state to start fresh conversation
         self.workflow_manager.reset_workflow_state()
@@ -123,6 +194,10 @@ class MultiAgentCLI:
     
     async def continue_conversation(self):
         """Continue an ongoing conversation with the agent team."""
+        if not self.workflow_manager:
+            self.console.print("[red]No workflow selected. Please restart the application.[/red]")
+            return
+            
         while True:
             self.console.print("\n" + "="*60)
             
@@ -166,6 +241,10 @@ class MultiAgentCLI:
     
     async def _process_streaming_response(self, user_input: str):
         """Process user input with streaming agent responses."""
+        if not self.workflow_manager:
+            self.console.print("[red]No workflow selected. Please restart the application.[/red]")
+            return
+            
         self.console.print("\n[bold blue]Agents are responding...[/bold blue]")
         
         try:
@@ -188,7 +267,7 @@ class MultiAgentCLI:
     
     def save_current_conversation(self):
         """Save the current conversation state."""
-        if not self.current_conversation_id:
+        if not self.current_conversation_id or not self.workflow_manager:
             return
         
         try:
@@ -237,6 +316,10 @@ class MultiAgentCLI:
         
         try:
             # Resume the conversation
+            if not self.workflow_manager:
+                self.console.print("[red]No workflow selected. Cannot resume conversation.[/red]")
+                return
+                
             with self.console.status("[bold green]Resuming conversation..."):
                 # Extract workflow_state from the loaded conversation data
                 workflow_state = conversation_data.get("workflow_state", {})
@@ -250,7 +333,8 @@ class MultiAgentCLI:
         except Exception as e:
             self.console.print(f"[red]Error resuming conversation: {e}[/red]")
         finally:
-            await self.workflow_manager.stop_session()
+            if self.workflow_manager:
+                await self.workflow_manager.stop_session()
     
     def list_conversations(self):
         """List all saved conversations."""
@@ -318,13 +402,32 @@ class MultiAgentCLI:
     
     async def run(self):
         """Main application loop."""
-        self.display_banner()
-        
         # Check for required environment variables
         if not os.getenv("OPENAI_API_KEY") and not os.getenv("AZURE_OPENAI_ENDPOINT"):
             self.console.print("[red]Error: No OpenAI API key or Azure OpenAI endpoint found.[/red]")
             self.console.print("[yellow]Please set your API credentials in the api_keys_config.env file.[/yellow]")
             return
+        
+        # Select workflow type first
+        workflow_type = self.select_workflow_type()
+        self.initialize_workflow_manager(workflow_type)
+        
+        self.display_banner()
+        
+        # Check if workflow supports auto-start
+        workflow_config = {}
+        if self.workflow_manager and hasattr(self.workflow_manager, 'workflow_config'):
+            workflow_config = self.workflow_manager.workflow_config
+        auto_start = workflow_config.get("auto_start", False)
+        
+        if auto_start:
+            # Auto-start workflow immediately without showing menu
+            self.console.print("\n[dim]Auto-starting workflow...[/dim]")
+            try:
+                await self.start_new_conversation()
+                # After auto-start workflow completes, show normal menu
+            except Exception as e:
+                self.console.print(f"[red]Error in auto-start workflow: {e}[/red]")
         
         while True:
             self.display_menu()
@@ -341,9 +444,17 @@ class MultiAgentCLI:
                     self.view_conversation_summary()
                 elif choice == "5":
                     self.delete_conversation()
+                elif choice == "6":
+                    # Switch workflow type
+                    workflow_type = self.select_workflow_type()
+                    self.initialize_workflow_manager(workflow_type)
+                    self.display_banner()
                 elif choice.lower() in ["q", "quit"]:
-                    display_info = self.workflow_manager.get_workflow_display_info()
-                    self.console.print(f"[bold blue]{display_info['goodbye_message']}[/bold blue]")
+                    if self.workflow_manager:
+                        display_info = self.workflow_manager.get_workflow_display_info()
+                        self.console.print(f"[bold blue]{display_info['goodbye_message']}[/bold blue]")
+                    else:
+                        self.console.print("[bold blue]👋 Goodbye![/bold blue]")
                     break
                 else:
                     self.console.print("[red]Invalid option. Please try again.[/red]")

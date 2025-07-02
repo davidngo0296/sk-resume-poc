@@ -1,5 +1,5 @@
 """
-Base agent class for the video script generation multi-agent system.
+Base agent class for multi-agent system.
 """
 
 from abc import ABC, abstractmethod
@@ -11,9 +11,9 @@ if TYPE_CHECKING:
     from semantic_kernel.agents import ChatCompletionAgent
 
 
-class BaseVideoAgent(ABC):
+class BaseAgent(ABC):
     """
-    Base class for all video script generation agents.
+    Base class for all agents in the multi-agent system.
     Provides common initialization and utility methods.
     """
     
@@ -105,4 +105,8 @@ class BaseVideoAgent(ABC):
     
     def get_kernel(self) -> "Kernel":
         """Return the configured kernel instance."""
-        return self.kernel 
+        return self.kernel
+
+
+# Backwards compatibility alias for existing video agents
+BaseVideoAgent = BaseAgent 

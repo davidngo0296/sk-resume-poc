@@ -12,4 +12,10 @@ jsonpickle==4.0.0
 azure-identity==1.19.0
 
 # Optional: For better CLI experience
-rich==13.9.4 
+rich==13.9.4
+
+# OpenAI Vision API for image analysis
+openai>=1.3.0
+
+# Image processing utilities
+Pillow==11.3.0 

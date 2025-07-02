@@ -1,14 +1,20 @@
-# 🎬 Video Script Multi-Agent Team POC
+# 🚀 Multi-Agent Team POC
 
-A Proof of Concept for a multi-agent team using **Semantic Kernel** with **Group Chat Orchestration** pattern to create video scripts collaboratively.
+A Proof of Concept for a multi-agent team using **Semantic Kernel** with **Group Chat Orchestration** pattern to handle different collaborative workflows.
 
 ## 🎯 Overview
 
-This POC demonstrates a sophisticated multi-agent system that creates video scripts through collaborative intelligence. The system uses three specialized agents working together in a group chat orchestration pattern:
+This POC demonstrates a sophisticated multi-agent system that can handle different types of collaborative workflows. The system features multiple specialized workflows each with their own expert agents:
 
+### 🎬 Video Script Creation Workflow
 - **Manager Agent** - Orchestrates the workflow and handles all user interactions
 - **Script Writer Agent** - Creates engaging video scripts based on user requirements  
 - **Audio Selector Agent** - Suggests appropriate audio elements and music for approved scripts
+
+### 🎨 Social Banner Design Workflow
+- **Manager Agent** - Orchestrates the workflow and handles all user interactions
+- **Graphic Designer Agent** - Creates banner designs by selecting from available image resources
+- **Graphic Evaluator Agent** - Evaluates banner designs using **OpenAI Vision API** to detect cats in actual image content
 
 ## ✨ Key Features
 
@@ -38,9 +44,19 @@ This POC demonstrates a sophisticated multi-agent system that creates video scri
 - **Human-in-the-Loop**: Ensure critical decisions get human oversight when needed
 - **Automated Workflows**: Skip approval for non-critical tasks to enable full automation
 
+### 🔍 AI-Powered Visual Content Analysis (Banner Design)
+- **OpenAI Vision API**: Uses GPT-4 with vision capabilities to analyze actual image content
+- **Text-Based Analysis**: Converts visual content to detailed text descriptions, then analyzes the text
+- **Zero Filename Dependency**: Completely ignores filenames and analyzes actual visual content
+- **Smart Content Detection**: AI detects specific visual elements (e.g., cats) with high accuracy
+- **Confidence Scoring**: Provides confidence levels based on AI's explicit content identification
+- **Detailed Reasoning**: Includes AI's visual description in evaluation feedback
+
 ## 🏗️ Architecture
 
 ### Multi-Agent System
+
+#### Video Script Creation Workflow
 ```
 User Request
      ↓
@@ -51,12 +67,27 @@ Script Writer Agent → Creates Script → User Approval
 Audio Selector Agent → Suggests Audio → Complete
 ```
 
+#### Social Banner Design Workflow
+```
+User Request
+     ↓
+Manager Agent (Orchestrator)
+     ↓
+Graphic Designer Agent → Selects Banner → Send to Evaluator
+     ↓
+Graphic Evaluator Agent → OpenAI Vision API → Text Analysis → Cat Detection
+     ↓
+If Approved: Present to User | If Rejected: Try Again
+```
+
 ### Technical Stack
 - **Semantic Kernel**: Microsoft's AI orchestration framework
 - **Group Chat Orchestration**: Advanced multi-agent coordination pattern
 - **Python**: Main programming language
 - **Rich**: Beautiful CLI interface
 - **JSON Serialization**: State persistence
+- **OpenAI API**: GPT-4 with vision capabilities for image analysis
+- **Pillow (PIL)**: Image encoding and basic processing utilities
 
 ## 🏗️ Clean Architecture
 
@@ -177,14 +208,20 @@ The demo (`python demo.py`) showcases:
 
 ### Full Implementation
 
-#### Starting a New Conversation
+#### Starting a New Workflow
 
 1. Launch the application: `python main.py`
-2. Select option **1** - "Start new video script creation"
-3. Describe your video script requirements
-4. The Manager agent will coordinate with the team to create your script
-5. Review and approve the script when presented
-6. Receive audio suggestions after approval
+2. **Select Workflow Type**:
+   - **Option 1**: Video Script Creation
+   - **Option 2**: Social Banner Design
+3. **For Video Script Creation**:
+   - Describe your video script requirements
+   - Review and approve the script when presented
+   - Receive audio suggestions after approval
+4. **For Banner Design**:
+   - Describe your desired banner (purpose, style, audience)
+   - Watch as the designer selects banners and evaluator analyzes them
+   - Get approved banners (containing cats) or see rejections with feedback
 
 #### Pausing & Resuming
 

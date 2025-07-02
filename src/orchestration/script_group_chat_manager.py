@@ -138,22 +138,21 @@ class ScriptGroupChatManager(MultiAgentGroupChatManager):
                 try:
                     current_index = workflow_sequence.index(last_working_agent)
                     
-                    # Check user feedback type
-                    approval_keywords = ["approve", "yes", "looks good", "accept", "proceed", "next"]
-                    revision_keywords = ["reject", "no", "revise", "change", "shorter", "longer", "different"]
+                    # Use AI to detect user feedback type instead of hardcoded keywords
+                    feedback_type = self._detect_user_feedback_type(last_user_message)
                     
-                    if any(keyword in last_user_message for keyword in approval_keywords):
+                    if feedback_type == "approval":
                         # Move to next agent in sequence
                         if current_index + 1 < len(workflow_sequence):
                             next_agent = workflow_sequence[current_index + 1]
                             if next_agent in mentioned_agents:
-                                print(f"DEBUG: WORKFLOW PRIORITY - Approval detected, moving to next agent: {next_agent}")
+                                print(f"DEBUG: WORKFLOW PRIORITY - AI detected approval, moving to next agent: {next_agent}")
                                 return next_agent
                     
-                    elif any(keyword in last_user_message for keyword in revision_keywords):
+                    elif feedback_type == "revision":
                         # Stay with current agent for revision
                         if last_working_agent in mentioned_agents:
-                            print(f"DEBUG: WORKFLOW PRIORITY - Revision detected, staying with current agent: {last_working_agent}")
+                            print(f"DEBUG: WORKFLOW PRIORITY - AI detected revision request, staying with current agent: {last_working_agent}")
                             return last_working_agent
                 
                 except (ValueError, IndexError):
@@ -161,6 +160,77 @@ class ScriptGroupChatManager(MultiAgentGroupChatManager):
         
         # Fall back to base class delegation detection
         return super()._detect_delegation(manager_response)
+    
+    def _detect_user_feedback_type(self, user_message: str) -> str:
+        """
+        Use AI to detect the type of user feedback instead of hardcoded keywords.
+        
+        Returns:
+            str: "approval", "revision", or "neutral"
+        """
+        try:
+            import openai
+            import os
+            
+            # Get OpenAI API key
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                return self._detect_user_feedback_type_fallback(user_message)
+            
+            # Create AI prompt for feedback detection
+            client = openai.OpenAI(api_key=api_key)
+            
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"""Analyze this user message and determine what type of feedback they're providing about completed work.
+
+USER MESSAGE:
+"{user_message}"
+
+INSTRUCTIONS:
+Respond with exactly one word:
+- "approval" - if user approves, likes, or wants to proceed (e.g., "yes", "good", "approve", "looks great", "proceed", "next")
+- "revision" - if user wants changes or improvements (e.g., "no", "change", "revise", "different", "shorter", "longer")
+- "neutral" - if it's not clear feedback or a new request
+
+Consider the overall intent and tone, not just specific keywords.
+
+Respond with only one word: approval, revision, or neutral."""
+                    }
+                ],
+                max_tokens=10,
+                temperature=0.1
+            )
+            
+            result = response.choices[0].message.content
+            if result:
+                result = result.strip().lower()
+                if result in ["approval", "revision", "neutral"]:
+                    return result
+            
+            return self._detect_user_feedback_type_fallback(user_message)
+                
+        except Exception as e:
+            print(f"DEBUG: AI feedback detection failed: {e}, falling back")
+            return self._detect_user_feedback_type_fallback(user_message)
+    
+    def _detect_user_feedback_type_fallback(self, user_message: str) -> str:
+        """Fallback hardcoded feedback type detection."""
+        user_message_lower = user_message.lower()
+        
+        # Check user feedback type
+        approval_keywords = ["approve", "yes", "looks good", "accept", "proceed", "next"]
+        revision_keywords = ["reject", "no", "revise", "change", "shorter", "longer", "different"]
+        
+        if any(keyword in user_message_lower for keyword in approval_keywords):
+            return "approval"
+        elif any(keyword in user_message_lower for keyword in revision_keywords):
+            return "revision"
+        else:
+            return "neutral"
     
     def _prepare_manager_context(self, prompt: str, conversation_history: List[Dict], original_request: str, previous_work: str) -> str:
         """Prepare script-specific context for the manager agent."""
@@ -176,8 +246,7 @@ class ScriptGroupChatManager(MultiAgentGroupChatManager):
         
         # Analyze conversation context for workflow state
         recent_work_summary = self._get_recent_work_summary()
-        is_user_feedback = len(conversation_history) > 1 and any(keyword in prompt.lower() for keyword in 
-            ["reject", "approve", "yes", "no", "revise", "change", "good", "bad", "shorter", "longer", "different"])
+        is_user_feedback = len(conversation_history) > 1 and self._detect_user_feedback_type(prompt) != "neutral"
         
         workflow_sequence = self.workflow_config.get("workflow_sequence", [])
         workflow_info = f"Workflow sequence: {' → '.join(workflow_sequence)}" if workflow_sequence else ""

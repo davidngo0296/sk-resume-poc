@@ -5,6 +5,7 @@ Extends the base MultiAgentGroupChatManager with banner design workflow intellig
 
 from typing import Optional, List, Dict, Any
 from .group_chat_manager import MultiAgentGroupChatManager
+import os
 
 
 class BannerGroupChatManager(MultiAgentGroupChatManager):
@@ -84,17 +85,96 @@ class BannerGroupChatManager(MultiAgentGroupChatManager):
     
     def _detect_delegation(self, manager_response: str) -> Optional[str]:
         """
-        Enhanced delegation detection with banner workflow sequence awareness.
-        
-        Args:
-            manager_response: The response from the manager agent
+        Use AI to intelligently detect which agent should be delegated to based on context.
+        This replaces hardcoded keyword matching with intelligent prompt-based analysis.
+        """
+        try:
+            import openai
             
-        Returns:
-            str: Name of the specialist agent to delegate to, or None if no delegation detected
+            # Get OpenAI API key
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                # Fall back to hardcoded logic if no API key
+                return self._detect_delegation_fallback(manager_response)
+            
+            # Get conversation context
+            conversation_history = self.workflow_state.get("conversation_history", [])
+            workflow_sequence = self.workflow_config.get("workflow_sequence", [])
+            
+            # Build available agents list
+            available_agents = [agent.name for agent in self.specialist_agents]
+            
+            # Get recent conversation context (last 5 messages)
+            recent_context = ""
+            for msg in conversation_history[-5:]:
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")[:200]  # Truncate for context
+                recent_context += f"{role}: {content}\n"
+            
+            # Create AI prompt for delegation detection
+            client = openai.OpenAI(api_key=api_key)
+            
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",  # Use faster model for workflow decisions
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"""You are a workflow coordination AI for a banner design process. Analyze the manager's response and determine which specialist agent (if any) should handle the next task.
+
+WORKFLOW CONTEXT:
+- Available agents: {', '.join(available_agents)}
+- Workflow sequence: {' → '.join(workflow_sequence)}
+- Recent conversation context:
+{recent_context}
+
+MANAGER'S RESPONSE:
+"{manager_response}"
+
+BANNER WORKFLOW RULES:
+1. If manager mentions coordinating with GraphicDesigner → return "GraphicDesigner"
+2. If manager mentions coordinating with GraphicEvaluator → return "GraphicEvaluator"  
+3. If GraphicDesigner just provided a banner selection → return "GraphicEvaluator"
+4. If GraphicEvaluator rejected a banner → return "GraphicDesigner"
+5. If GraphicEvaluator approved a banner → return "NONE" (workflow complete)
+6. If manager says no delegation needed → return "NONE"
+7. For initial banner requests → return "GraphicDesigner"
+
+RESPONSE FORMAT:
+Return only the agent name ("GraphicDesigner", "GraphicEvaluator") or "NONE" if no delegation is needed.
+Do not include any explanation or additional text."""
+                    }
+                ],
+                max_tokens=50,
+                temperature=0.1
+            )
+            
+            result = response.choices[0].message.content
+            if result:
+                result = result.strip()
+            else:
+                result = ""
+            
+            # Validate result
+            if result == "NONE":
+                return None
+            elif result in available_agents:
+                print(f"DEBUG: AI Delegation Detection → {result}")
+                return result
+            else:
+                print(f"DEBUG: AI returned invalid agent '{result}', falling back to hardcoded logic")
+                return self._detect_delegation_fallback(manager_response)
+                
+        except Exception as e:
+            print(f"DEBUG: AI delegation detection failed: {e}, falling back to hardcoded logic")
+            return self._detect_delegation_fallback(manager_response)
+    
+    def _detect_delegation_fallback(self, manager_response: str) -> Optional[str]:
+        """
+        Fallback hardcoded delegation detection logic.
         """
         response_lower = manager_response.lower()
         
-        # First check for negative delegation contexts - if found, return None
+        # First check for negative delegation contexts
         negative_contexts = [
             "will not delegate", "will not coordinate", "will not assign", 
             "no delegation", "not assign", "will not pass",
@@ -103,17 +183,7 @@ class BannerGroupChatManager(MultiAgentGroupChatManager):
         
         for negative_context in negative_contexts:
             if negative_context in response_lower:
-                print(f"DEBUG: Found negative delegation context: '{negative_context}' - ignoring agent mentions")
                 return None
-        
-        # PRIORITY 1: Check workflow sequence context first (approval/revision scenarios)
-        conversation_history = self.workflow_state.get("conversation_history", [])
-        workflow_sequence = self.workflow_config.get("workflow_sequence", [])
-        
-        # Get recent user messages to understand context
-        user_messages = [msg for msg in reversed(conversation_history[-3:]) 
-                        if msg.get("role") == "user"]
-        last_user_message = user_messages[0].get("content", "").lower() if user_messages else ""
         
         # Find agents mentioned in the manager response
         mentioned_agents = []
@@ -121,6 +191,9 @@ class BannerGroupChatManager(MultiAgentGroupChatManager):
             agent_name = spec_agent.name
             if agent_name.lower() in response_lower:
                 mentioned_agents.append(agent_name)
+        
+        conversation_history = self.workflow_state.get("conversation_history", [])
+        workflow_sequence = self.workflow_config.get("workflow_sequence", [])
         
         # Banner-specific workflow logic
         if mentioned_agents and workflow_sequence:
@@ -151,20 +224,90 @@ class BannerGroupChatManager(MultiAgentGroupChatManager):
             
             # Handle workflow sequence based on context
             if last_evaluator_decision == "rejected" and "GraphicDesigner" in mentioned_agents:
-                print(f"DEBUG: BANNER WORKFLOW - Evaluator rejected, delegating to GraphicDesigner for new selection")
+                print(f"DEBUG: FALLBACK BANNER WORKFLOW - Evaluator rejected, delegating to GraphicDesigner for new selection")
                 return "GraphicDesigner"
             
             elif last_working_agent == "GraphicDesigner" and "GraphicEvaluator" in mentioned_agents:
-                print(f"DEBUG: BANNER WORKFLOW - Designer provided banner, delegating to GraphicEvaluator for evaluation")
+                print(f"DEBUG: FALLBACK BANNER WORKFLOW - Designer provided banner, delegating to GraphicEvaluator for evaluation")
                 return "GraphicEvaluator"
             
             # Check for initial delegation (user describing banner requirements)
             if not last_working_agent and "GraphicDesigner" in mentioned_agents:
-                print(f"DEBUG: BANNER WORKFLOW - Initial request, delegating to GraphicDesigner")
+                print(f"DEBUG: FALLBACK BANNER WORKFLOW - Initial request, delegating to GraphicDesigner")
                 return "GraphicDesigner"
         
         # Fall back to base class delegation detection
         return super()._detect_delegation(manager_response)
+    
+    def _detect_user_feedback_type(self, user_message: str) -> str:
+        """
+        Use AI to detect the type of user feedback instead of hardcoded keywords.
+        
+        Returns:
+            str: "approval", "revision", or "neutral"
+        """
+        try:
+            import openai
+            
+            # Get OpenAI API key
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                return self._detect_user_feedback_type_fallback(user_message)
+            
+            # Create AI prompt for feedback detection
+            client = openai.OpenAI(api_key=api_key)
+            
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"""Analyze this user message and determine what type of feedback they're providing about completed work.
+
+USER MESSAGE:
+"{user_message}"
+
+INSTRUCTIONS:
+Respond with exactly one word:
+- "approval" - if user approves, likes, or wants to proceed (e.g., "yes", "good", "approve", "looks great", "proceed", "next")
+- "revision" - if user wants changes or improvements (e.g., "no", "change", "revise", "different", "try again")
+- "neutral" - if it's not clear feedback or a new request
+
+Consider the overall intent and tone, not just specific keywords.
+
+Respond with only one word: approval, revision, or neutral."""
+                    }
+                ],
+                max_tokens=10,
+                temperature=0.1
+            )
+            
+            result = response.choices[0].message.content
+            if result:
+                result = result.strip().lower()
+                if result in ["approval", "revision", "neutral"]:
+                    return result
+            
+            return self._detect_user_feedback_type_fallback(user_message)
+                
+        except Exception as e:
+            print(f"DEBUG: AI feedback detection failed: {e}, falling back")
+            return self._detect_user_feedback_type_fallback(user_message)
+    
+    def _detect_user_feedback_type_fallback(self, user_message: str) -> str:
+        """Fallback hardcoded feedback type detection."""
+        user_message_lower = user_message.lower()
+        
+        # Check user feedback type with banner-specific keywords
+        approval_keywords = ["approve", "yes", "looks good", "accept", "proceed", "next"]
+        revision_keywords = ["reject", "no", "revise", "change", "different", "try again"]
+        
+        if any(keyword in user_message_lower for keyword in approval_keywords):
+            return "approval"
+        elif any(keyword in user_message_lower for keyword in revision_keywords):
+            return "revision"
+        else:
+            return "neutral"
     
     def _prepare_manager_context(self, prompt: str, conversation_history: List[Dict], original_request: str, previous_work: str) -> str:
         """Prepare banner-specific context for the manager agent."""
@@ -180,8 +323,7 @@ class BannerGroupChatManager(MultiAgentGroupChatManager):
         
         # Analyze conversation context for workflow state
         recent_work_summary = self._get_recent_work_summary()
-        is_user_feedback = len(conversation_history) > 1 and any(keyword in prompt.lower() for keyword in 
-            ["reject", "approve", "yes", "no", "revise", "change", "good", "bad", "different", "try again"])
+        is_user_feedback = len(conversation_history) > 1 and self._detect_user_feedback_type(prompt) != "neutral"
         
         workflow_sequence = self.workflow_config.get("workflow_sequence", [])
         workflow_info = f"Workflow sequence: {' → '.join(workflow_sequence)}" if workflow_sequence else ""
@@ -273,7 +415,70 @@ Focus on the AI's visual analysis results, completely ignoring filenames.
         return base_context
     
     def _get_recent_work_summary(self) -> str:
-        """Get a summary of recent work completed in the conversation."""
+        """Get an AI-generated summary of recent work completed in the conversation."""
+        conversation_history = self.workflow_state.get("conversation_history", [])
+        if not conversation_history:
+            return "No previous work"
+        
+        try:
+            import openai
+            
+            # Get OpenAI API key
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                return self._get_recent_work_summary_fallback()
+            
+            # Get recent conversation context (last 5 messages)
+            recent_context = ""
+            for msg in conversation_history[-5:]:
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")[:300]  # Truncate for context
+                recent_context += f"{role}: {content}\n"
+            
+            # Create AI prompt for work summary
+            client = openai.OpenAI(api_key=api_key)
+            
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"""Analyze the recent conversation and provide a brief summary of work completed in the banner design workflow.
+
+RECENT CONVERSATION:
+{recent_context}
+
+INSTRUCTIONS:
+- Focus on what GraphicDesigner and GraphicEvaluator have accomplished
+- Note if banners were selected, evaluated, approved, or rejected
+- Keep summary under 50 words
+- Use format: "Agent did action → Agent did action" 
+- If no work done yet, say "Initial request received"
+
+EXAMPLES:
+- "GraphicDesigner selected a banner → GraphicEvaluator approved the banner"
+- "GraphicDesigner selected a banner → GraphicEvaluator rejected the banner"
+- "Initial request received"
+
+Provide only the summary, no additional text."""
+                    }
+                ],
+                max_tokens=100,
+                temperature=0.1
+            )
+            
+            result = response.choices[0].message.content
+            if result:
+                return result.strip()
+            else:
+                return self._get_recent_work_summary_fallback()
+                
+        except Exception as e:
+            print(f"DEBUG: AI work summary failed: {e}, falling back")
+            return self._get_recent_work_summary_fallback()
+    
+    def _get_recent_work_summary_fallback(self) -> str:
+        """Fallback hardcoded work summary analysis."""
         conversation_history = self.workflow_state.get("conversation_history", [])
         if not conversation_history:
             return "No previous work"
@@ -297,7 +502,68 @@ Focus on the AI's visual analysis results, completely ignoring filenames.
         return " → ".join(reversed(recent_activities)) if recent_activities else "Initial request received"
     
     def _get_banner_evaluation_status(self) -> str:
-        """Get the current status of banner evaluation."""
+        """Get AI-analyzed current status of banner evaluation."""
+        conversation_history = self.workflow_state.get("conversation_history", [])
+        
+        try:
+            import openai
+            
+            # Get OpenAI API key
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                return self._get_banner_evaluation_status_fallback()
+            
+            # Get recent evaluator messages
+            evaluator_context = ""
+            for msg in reversed(conversation_history[-5:]):
+                content = msg.get("content", "")
+                if "GraphicEvaluator:" in content:
+                    evaluator_context += f"{content[:300]}\n"
+            
+            if not evaluator_context:
+                return "No evaluation yet"
+            
+            # Create AI prompt for evaluation status
+            client = openai.OpenAI(api_key=api_key)
+            
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"""Analyze the GraphicEvaluator's recent responses and determine the current evaluation status.
+
+EVALUATOR RESPONSES:
+{evaluator_context}
+
+INSTRUCTIONS:
+Respond with exactly one of these options:
+- "Last banner was APPROVED" (if evaluator approved a banner)
+- "Last banner was REJECTED" (if evaluator rejected a banner)
+- "No evaluation yet" (if no clear evaluation found)
+
+Look for approval indicators like ✅, "APPROVED", positive feedback.
+Look for rejection indicators like ❌, "REJECTED", negative feedback.
+
+Provide only the status, no additional text."""
+                    }
+                ],
+                max_tokens=50,
+                temperature=0.1
+            )
+            
+            result = response.choices[0].message.content
+            if result:
+                return result.strip()
+            else:
+                return self._get_banner_evaluation_status_fallback()
+                
+        except Exception as e:
+            print(f"DEBUG: AI evaluation status failed: {e}, falling back")
+            return self._get_banner_evaluation_status_fallback()
+    
+    def _get_banner_evaluation_status_fallback(self) -> str:
+        """Fallback hardcoded evaluation status analysis."""
         conversation_history = self.workflow_state.get("conversation_history", [])
         
         for msg in reversed(conversation_history[-3:]):

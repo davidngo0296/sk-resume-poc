@@ -68,7 +68,7 @@ class GraphicEvaluatorAgent(BaseAgent):
             # Encode the image
             base64_image = self._encode_image(image_path)
             
-            # Create the vision analysis request
+            # Create the vision analysis request with embedded evaluation logic
             response = client.chat.completions.create(
                 model="gpt-4o",  # Use GPT-4 with vision capabilities
                 messages=[
@@ -77,15 +77,31 @@ class GraphicEvaluatorAgent(BaseAgent):
                         "content": [
                             {
                                 "type": "text",
-                                "text": """Please analyze this image and provide a detailed description of what you see. 
-                                
-                                Focus particularly on:
-                                - Are there any cats, kittens, or feline animals in the image?
-                                - What animals (if any) are present?
-                                - What is the main subject/content of the image?
-                                - Describe the overall scene or context
-                                
-                                Please be specific and thorough in your description."""
+                                "text": """You are an AI image evaluator for banner designs. Analyze this image and provide a structured evaluation focusing on cat/feline content detection.
+
+EVALUATION CRITERIA:
+- APPROVED: Image contains cats, kittens, or feline animals
+- REJECTED: Image contains other animals or no feline content
+
+ANALYSIS REQUIREMENTS:
+1. Carefully examine the image for any cats, kittens, or feline animals
+2. Identify what animals (if any) are actually present
+3. Determine confidence level based on clarity of feline presence
+4. Make approval decision based on feline content requirement
+
+RESPONSE FORMAT (use this exact structure):
+CONTAINS_CATS: [true/false]
+CONFIDENCE: [0.0-1.0]
+DETECTED_ANIMALS: [list animals you see]
+DECISION: [APPROVED/REJECTED]
+REASONING: [Brief explanation of your decision]
+DESCRIPTION: [Detailed description of what you see in the image]
+
+IMPORTANT NOTES:
+- Only approve if you clearly see cats/kittens/feline animals
+- Be strict about feline requirement - other cute animals should be rejected
+- Confidence should reflect how certain you are about feline presence
+- Base decision purely on what you actually observe in the image"""
                             },
                             {
                                 "type": "image_url",
@@ -101,74 +117,54 @@ class GraphicEvaluatorAgent(BaseAgent):
                 temperature=0.1  # Low temperature for consistent analysis
             )
             
-            # Extract the description from OpenAI's response
-            vision_description = response.choices[0].message.content
+            # Extract the structured response from OpenAI
+            ai_response = response.choices[0].message.content
             
             # Debug: Show the actual OpenAI API response
             print(f"DEBUG: OpenAI Vision API Raw Response for {image_path}:")
             print(f"DEBUG: Model: {response.model}")
             print(f"DEBUG: Usage: {response.usage}")
-            print(f"DEBUG: Full Response: {vision_description}")
+            print(f"DEBUG: Full Response: {ai_response}")
             print("DEBUG: " + "="*80)
             
-            if not vision_description:
+            if not ai_response:
                 raise Exception("No content received from OpenAI Vision API")
             
-            # Analyze the text description for cat content
-            description_lower = vision_description.lower()
+            # Parse the structured response
+            response_lines = ai_response.strip().split('\n')
+            parsed_data = {}
             
-            # Look for explicit mentions of cats/felines with context awareness
-            cat_keywords = ['cat', 'cats', 'kitten', 'kittens', 'feline', 'felines', 'kitty', 'kitties']
+            for line in response_lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    parsed_data[key] = value
             
-            # Check for negative contexts that would invalidate cat detections
-            negative_contexts = [
-                'no cat', 'no cats', 'no kitten', 'no kittens', 'no feline',
-                'there are no cats', 'there are no kittens', 'there are no feline',
-                'not a cat', 'not cats', 'not a kitten', 'not kittens', 'not feline',
-                'without cats', 'without kittens', 'without feline', 'lacks cats',
-                'absent cats', 'absent kittens', 'absent feline'
-            ]
+            # Extract values with fallbacks
+            contains_cats_str = parsed_data.get('CONTAINS_CATS', 'false').lower()
+            contains_cats = contains_cats_str == 'true'
             
-            # Check if any negative context is present
-            has_negative_context = any(neg_context in description_lower for neg_context in negative_contexts)
+            confidence_str = parsed_data.get('CONFIDENCE', '0.0')
+            try:
+                confidence = float(confidence_str)
+            except ValueError:
+                confidence = 0.0
             
-            # Look for positive cat mentions only if no negative context
-            if has_negative_context:
-                explicit_cat_mentions = []
-                contains_cats = False
-            else:
-                explicit_cat_mentions = [word for word in cat_keywords if word in description_lower]
-                contains_cats = len(explicit_cat_mentions) > 0
-            
-            # Look for negative indicators (other animals)
-            non_cat_animals = ['dog', 'dogs', 'puppy', 'puppies', 'canine', 'fish', 'bird', 'horse', 'cow', 'pig']
-            other_animals_mentioned = [word for word in non_cat_animals if word in description_lower]
-            
-            # Calculate confidence based on explicit mentions and context
-            if has_negative_context:
-                # Very low confidence if negative context detected
-                confidence = 0.05
-            elif contains_cats and explicit_cat_mentions:
-                # High confidence if cats are explicitly mentioned without negative context
-                confidence = 0.9
-                if other_animals_mentioned:
-                    # Slightly lower if other animals are also present
-                    confidence = 0.8
-            elif other_animals_mentioned:
-                # Low confidence if other animals are mentioned but no cats
-                confidence = 0.1
-            else:
-                # Medium-low confidence if no clear animals mentioned
-                confidence = 0.3
+            detected_animals = parsed_data.get('DETECTED_ANIMALS', '')
+            decision = parsed_data.get('DECISION', 'REJECTED')
+            reasoning = parsed_data.get('REASONING', 'No reasoning provided')
+            description = parsed_data.get('DESCRIPTION', ai_response)
             
             return {
                 "contains_cats": contains_cats,
                 "confidence": confidence,
-                "description": vision_description,
-                "ai_analysis": vision_description,
-                "detected_cats": explicit_cat_mentions,
-                "other_animals": other_animals_mentioned,
-                "analysis_method": "OpenAI Vision API"
+                "description": description,
+                "ai_analysis": ai_response,
+                "detected_animals": detected_animals,
+                "decision": decision,
+                "reasoning": reasoning,
+                "analysis_method": "OpenAI Vision API with Prompt-based Evaluation"
             }
             
         except ImportError:
@@ -201,32 +197,20 @@ class GraphicEvaluatorAgent(BaseAgent):
             # Analyze the actual image content using OpenAI Vision API
             analysis_result = await self._analyze_image_with_openai_vision(image_path)
             
-            # Determine approval based on AI analysis
-            contains_cats = analysis_result.get("contains_cats", False)
+            # Extract AI's direct evaluation decision
+            ai_decision = analysis_result.get("decision", "REJECTED")
             confidence = analysis_result.get("confidence", 0.0)
+            reasoning = analysis_result.get("reasoning", "No reasoning provided")
+            detected_animals = analysis_result.get("detected_animals", "")
             description = analysis_result.get("description", "No description available")
             
-            # Apply evaluation criteria
-            approved = contains_cats and confidence >= 0.5
-            
-            # Generate detailed reasoning based on AI analysis
-            ai_description = analysis_result.get("ai_analysis", "No description available")
-            detected_cats = analysis_result.get("detected_cats", [])
-            other_animals = analysis_result.get("other_animals", [])
-            
-            if approved:
-                cat_mentions = ", ".join(detected_cats) if detected_cats else "feline content"
-                reasoning = f"✅ APPROVED: OpenAI Vision analysis confirms this banner contains {cat_mentions} (confidence: {confidence:.1%}). AI detected: '{ai_description[:150]}...' This meets our evaluation criteria for engaging cat-themed visual design."
+            # Use AI's decision directly and format the response
+            if ai_decision == "APPROVED":
+                final_reasoning = f"✅ APPROVED: OpenAI Vision AI has evaluated this banner and confirmed it contains feline content (confidence: {confidence:.1%}). AI reasoning: {reasoning}. AI detected: '{description[:150]}...' This meets our evaluation criteria for engaging cat-themed visual design."
             else:
-                if other_animals:
-                    animal_mentions = ", ".join(other_animals)
-                    reasoning = f"❌ REJECTED: OpenAI Vision analysis shows this banner contains {animal_mentions}, not cats (confidence: {confidence:.1%}). AI detected: '{ai_description[:150]}...' Our evaluation criteria specifically requires cat-related imagery."
-                elif not contains_cats:
-                    reasoning = f"❌ REJECTED: OpenAI Vision analysis shows no cats or feline animals in this banner (confidence: {confidence:.1%}). AI detected: '{ai_description[:150]}...' Please select a banner featuring cats."
-                else:
-                    reasoning = f"❌ REJECTED: Low confidence in cat detection from AI analysis ({confidence:.1%}). AI detected: '{ai_description[:150]}...' Please select a banner with clearer feline content."
+                final_reasoning = f"❌ REJECTED: OpenAI Vision AI has evaluated this banner and determined it does not meet our feline content requirements (confidence: {confidence:.1%}). AI reasoning: {reasoning}. AI detected: '{description[:150]}...' Please select a banner featuring cats."
             
-            return reasoning
+            return final_reasoning
             
         except Exception as e:
             return f"❌ REJECTED: Error analyzing banner '{banner_filename}': {str(e)}. Please try a different image."

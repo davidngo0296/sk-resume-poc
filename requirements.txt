@@ -1,0 +1,15 @@
+# Semantic Kernel dependencies
+semantic-kernel[chat-completion]==1.18.0
+
+# Additional dependencies for serialization and UI
+python-dotenv==1.0.0
+pydantic==2.9.2
+uvicorn==0.32.1
+fastapi==0.115.4
+jsonpickle==4.0.0
+
+# Azure OpenAI (if using Azure)
+azure-identity==1.19.0
+
+# Optional: For better CLI experience
+rich==13.9.4 

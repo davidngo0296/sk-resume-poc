@@ -1,0 +1,26 @@
+{
+  "conversation_id": "20250701_150508_motivation_video",
+  "saved_at": "2025-07-01T15:05:24.729031",
+  "workflow_state": {
+    "workflow_state": {
+      "phase": "paused",
+      "script_approved": false,
+      "conversation_history": [
+        {
+          "role": "user",
+          "content": "motivation video",
+          "timestamp": null
+        }
+      ],
+      "current_script": "Here's a video script for 'motivation video':\n\n**TITLE: Motivation Video Video**\n\n**SCENE 1: OPENING**\n[Dynamic music begins]\n[Text overlay: Bold, inspiring message]\n\n**NARRATION:**\n\"Every great achievement starts with a single step. Today is your day to take that step.\"\n\n**SCENE 2: MAIN MESSAGE**\n[Inspiring visuals]\n\"You have the power within you to overcome any challenge. Believe in yourself and take action.\"\n\n**SCENE 3: CALL TO ACTION**\n[Uplifting music crescendo]\n\"Don't wait for tomorrow. Start now. Your future self will thank you.\"\n\n**FADE OUT**\n\nThis script is designed to inspire and motivate viewers to take action toward their goals.",
+      "audio_suggestions": null
+    },
+    "session_data": {
+      "agents_initialized": true,
+      "last_message": {
+        "py/id": 4
+      }
+    }
+  },
+  "metadata": {}
+}

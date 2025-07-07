@@ -1,5 +1,5 @@
 # Semantic Kernel dependencies
-semantic-kernel[chat-completion]==1.18.0
+semantic-kernel[chat-completion]==1.34.0
 
 # Additional dependencies for serialization and UI
 python-dotenv==1.0.0

@@ -81,7 +81,6 @@ class BaseAgent(ABC):
             from semantic_kernel.agents import ChatCompletionAgent
             
             return ChatCompletionAgent(
-                service_id="default",
                 kernel=self.kernel,
                 name=self.name,
                 instructions=self.instructions,
